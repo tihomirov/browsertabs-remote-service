@@ -1,46 +1,51 @@
+// import {AddressInfo} from 'node:net';
 import * as express from 'express';
-import * as http from 'http';
-import * as WebSocket from 'ws';
-import { AddressInfo } from 'net'
+import * as requestIp from 'request-ip';
+import {Server, Socket} from 'socket.io';
 
-const app = express();
+// const app = express();
+// const server = app.listen(8080, () => {
+// 	console.log(`listening on port ${(server.address() as AddressInfo).port}`);
+// });
 
-//initialize a simple http server
-const server = http.createServer(app);
+const io = new Server(3000, { /* options */ });
 
-//initialize the WebSocket server instance
-const wss = new WebSocket.Server({ server });
+const networks = new Map<string, Socket[]>();
 
-wss.on('connection', (ws: WebSocket) => {
+io.on('connection', socket => {
+	const clientIp = requestIp.getClientIp(socket.request);
+	console.log(`New connection from ${clientIp ?? 'NULL'}`);
 
-    //connection is up, let's add a simple simple event
-    ws.on('message', (message: string) => {
-        //log the received message and send it back to the client
-        console.log('received: %s', message);
+	if (clientIp && networks.get(clientIp) === undefined) {
+		networks.set(clientIp, []);
+	}
 
-        const broadcastRegex = /^broadcast\:/;
+	if (clientIp) {
+		const network = networks.get(clientIp);
 
-        if (broadcastRegex.test(message)) {
-            message = message.replace(broadcastRegex, '');
+		if (network) {
+			network.push(socket);
+			updateNetwork(network);
+		}
+	}
 
-            //send back the message to the other clients
-            wss.clients
-                .forEach(client => {
-                    if (client != ws) {
-                        client.send(`Hello, broadcast message -> ${message}`);
-                    }    
-                });
-            
-        } else {
-            ws.send(`Hello, you sent -> ${message}`);
-        }
-    });
+	socket.on('disconnect', () => {
+		console.log(`Disconnected ${clientIp ?? 'NULL'}`);
 
-    //send immediatly a feedback to the incoming connection    
-    ws.send('Hi there, I am a WebSocket server');
+		if (clientIp) {
+			const network = networks.get(clientIp);
+
+			if (network) {
+				network.splice(network.indexOf(socket), 1);
+				updateNetwork(network);
+			}
+		}
+	});
 });
 
-//start our server
-server.listen(process.env.PORT || 8999, () => {
-    console.log(`Server started on port ${(server.address() as AddressInfo).port} :)`);
-});
+function updateNetwork(network: Socket[]) {
+	for (const socket of network) {
+		socket.emit('network-clients', network.length);
+	}
+}
+
