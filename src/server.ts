@@ -11,14 +11,17 @@ const server = http.createServer(app);
 // initialize the WebSocket server instance
 const wss = new WebSocket.Server({server});
 
-const networks = new Map<string, WebSocket[]>();
+type NetworkKey = string;
+
+const networks = new Map<NetworkKey, WebSocket[]>();
+const subnetPrefix = '::ffff:';
 
 setInterval(() => {
 	console.log('!!! networks');
 	console.log(JSON.stringify(mapToObject(networks)));
 }, 10_000);
 
-function mapToObject(map: Map<string, WebSocket[]>): Record<string, string> {
+function mapToObject(map: Map<NetworkKey, WebSocket[]>): Record<string, string> {
 	const object: Record<string, string> = {};
 	for (const [k, v] of map.entries()) {
 		object[k] = `Sockets ${v.length}`;
@@ -28,20 +31,22 @@ function mapToObject(map: Map<string, WebSocket[]>): Record<string, string> {
 }
 
 wss.on('connection', (ws: WebSocket, request) => {
-	const clientIp = requestIp.getClientIp(request);
-	console.log('clientIp: %s', clientIp);
+	const networkKey = getNetworkKey(request);
+	console.log('connection - networkKey: %s', networkKey);
 
-	if (clientIp && networks.get(clientIp) === undefined) {
-		networks.set(clientIp, []);
+	if (!networkKey) {
+		return;
 	}
 
-	if (clientIp) {
-		const network = networks.get(clientIp);
+	if (networks.get(networkKey) === undefined) {
+		networks.set(networkKey, []);
+	}
 
-		if (network) {
-			network.push(ws);
-			updateNetwork(network);
-		}
+	const network = networks.get(networkKey);
+
+	if (network) {
+		network.push(ws);
+		updateNetwork(network);
 	}
 
 	// connection is up, let's add a simple simple event
@@ -69,15 +74,13 @@ wss.on('connection', (ws: WebSocket, request) => {
 	ws.send('Hi there, I am a WebSocket server');
 
 	ws.on('disconnect', () => {
-		console.log(`Disconnected ${clientIp ?? 'NULL'}`);
+		console.log('disconnected - networkKey: %s', networkKey);
 
-		if (clientIp) {
-			const network = networks.get(clientIp);
+		const network = networks.get(networkKey);
 
-			if (network) {
-				network.splice(network.indexOf(ws), 1);
-				updateNetwork(network);
-			}
+		if (network) {
+			network.splice(network.indexOf(ws), 1);
+			updateNetwork(network);
 		}
 	});
 });
@@ -90,4 +93,16 @@ function updateNetwork(network: WebSocket[]) {
 	for (const socket of network) {
 		socket.emit('network-clients', network.length);
 	}
+}
+
+function getNetworkKey(request: http.IncomingMessage): NetworkKey | undefined {
+	const clientIp = requestIp.getClientIp(request);
+
+	if (!clientIp) {
+		// add logs here. Somethng is wrong
+		return undefined;
+	}
+
+	const isSubnet = clientIp.startsWith(subnetPrefix);
+	return isSubnet ? subnetPrefix : clientIp;
 }
