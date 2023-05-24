@@ -13,6 +13,20 @@ const wss = new WebSocket.Server({server});
 
 const networks = new Map<string, WebSocket[]>();
 
+setInterval(() => {
+	console.log('!!! networks');
+	console.log(JSON.stringify(mapToObject(networks)));
+}, 10_000);
+
+function mapToObject(map: Map<string, WebSocket[]>): Record<string, string> {
+	const object: Record<string, string> = {};
+	for (const [k, v] of map.entries()) {
+		object[k] = `Sockets ${v.length}`;
+	}
+
+	return object;
+}
+
 wss.on('connection', (ws: WebSocket, request) => {
 	const clientIp = requestIp.getClientIp(request);
 	console.log('clientIp: %s', clientIp);
